@@ -1,0 +1,35 @@
+{
+  "name": "ai-powered-meeting-cost-calculator---productivity-analyzer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node ./node_modules/concurrently/dist/bin/concurrently.js \"npm:dev:client\" \"npm:dev:server\"",
+    "dev:client": "node ./node_modules/vite/bin/vite.js",
+    "dev:server": "node ./server/index.mjs",
+    "server": "node ./server/index.mjs",
+    "build": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.101.1",
+    "@tailwindcss/vite": "^4.2.2",
+    "@vitejs/plugin-react": "^6.0.1",
+    "chart.js": "^4.5.1",
+    "dotenv": "^17.4.0",
+    "express": "^5.2.1",
+    "react": "^19.2.4",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.2"
+  }
+}
