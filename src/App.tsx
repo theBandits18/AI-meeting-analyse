@@ -14,12 +14,17 @@ import {
   saveMeetingRecord,
   pingBackend,
 } from './utils/api'
+import { analyzeTranscript as analyzeTranscriptLocally } from './utils/analysis'
 import {
   formatCompactCurrency,
   formatCurrency,
   getMonthlyProjection,
 } from './utils/format'
-import { loadMeetingHistory, replaceMeetingHistory } from './utils/storage'
+import {
+  loadMeetingHistory,
+  replaceMeetingHistory,
+  upsertMeetingRecord,
+} from './utils/storage'
 
 const sanitizeForm = (form: MeetingFormState): MeetingFormState => ({
   title: form.title.trimStart(),
@@ -31,6 +36,7 @@ const sanitizeForm = (form: MeetingFormState): MeetingFormState => ({
 })
 
 function App() {
+  const isGuestMode = !isSupabaseConfigured
   const [form, setForm] = useState<MeetingFormState>(DEFAULT_FORM)
   const [currentMeeting, setCurrentMeeting] = useState<LiveMeeting | null>(null)
   const [transcript, setTranscript] = useState('')
@@ -69,7 +75,7 @@ function App() {
         }
       } catch {
         if (isMounted) {
-          setServerStatus('offline')
+          setServerStatus(isGuestMode ? 'online' : 'offline')
         }
       }
     }
@@ -79,14 +85,13 @@ function App() {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [isGuestMode])
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
-      setAuthStatus('unauthenticated')
-      setAuthError(
-        'Supabase is not configured yet. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to a local .env file.',
-      )
+    if (isGuestMode || !supabase) {
+      setSession(null)
+      setAuthStatus('authenticated')
+      setAuthError(null)
       return undefined
     }
 
@@ -123,9 +128,14 @@ function App() {
       isMounted = false
       subscription.unsubscribe()
     }
-  }, [])
+  }, [isGuestMode])
 
   useEffect(() => {
+    if (isGuestMode) {
+      setRequestError(null)
+      return
+    }
+
     if (!session?.access_token) {
       return
     }
@@ -159,7 +169,7 @@ function App() {
     return () => {
       isMounted = false
     }
-  }, [session?.access_token])
+  }, [isGuestMode, session?.access_token])
 
   // Recalculate from the original start time so the live cost counter never drifts.
   useEffect(() => {
@@ -261,6 +271,14 @@ function App() {
   }
 
   const handleLogout = async () => {
+    if (isGuestMode) {
+      setCurrentMeeting(null)
+      setAnalysis(null)
+      setTranscript('')
+      setRequestError(null)
+      return
+    }
+
     if (!supabase) {
       return
     }
@@ -274,12 +292,7 @@ function App() {
   }
 
   const handleAnalyzeMeeting = async () => {
-    if (
-      !session?.access_token ||
-      !currentMeeting ||
-      currentMeeting.endedAt === null ||
-      !transcript.trim()
-    ) {
+    if (!currentMeeting || currentMeeting.endedAt === null || !transcript.trim()) {
       return
     }
 
@@ -292,11 +305,13 @@ function App() {
       (currentMeeting.elapsedMs / 3_600_000)
 
     try {
-      const result = await analyzeMeetingTranscript(
-        transcript.trim(),
-        totalCost,
-        session.access_token,
-      )
+      const result = isGuestMode
+        ? analyzeTranscriptLocally(transcript.trim(), totalCost)
+        : await analyzeMeetingTranscript(
+            transcript.trim(),
+            totalCost,
+            session?.access_token ?? '',
+          )
       const record: MeetingRecord = {
         ...currentMeeting.config,
         id: currentMeeting.id,
@@ -314,10 +329,15 @@ function App() {
         analysis: result,
       }
 
-      const updatedHistory = await saveMeetingRecord(record, session.access_token)
+      const updatedHistory = isGuestMode
+        ? upsertMeetingRecord(history, record)
+        : await saveMeetingRecord(record, session?.access_token ?? '')
+
       setAnalysis(result)
       setHistory(updatedHistory)
-      replaceMeetingHistory(updatedHistory)
+      if (!isGuestMode) {
+        replaceMeetingHistory(updatedHistory)
+      }
       setServerStatus('online')
     } catch (error) {
       setRequestError(
@@ -356,33 +376,37 @@ function App() {
           <div className="grid gap-8 lg:grid-cols-[1.2fr_0.9fr]">
             <div>
               <span className="inline-flex rounded-full border border-emerald-300/20 bg-emerald-300/10 px-4 py-1 text-xs font-semibold uppercase tracking-[0.28em] text-emerald-200">
-                {session?.user.email ?? 'Supabase user'}
+                {isGuestMode ? 'Guest mode' : session?.user.email ?? 'Supabase user'}
               </span>
               <h1 className="mt-5 max-w-3xl font-display text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
                 Meeting Cost Calculator & Productivity Analyzer
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-                Track real-time meeting spend, score the value of the discussion,
-                and build a lightweight history dashboard with Supabase-authenticated
-                backend storage and analysis.
+                {isGuestMode
+                  ? 'Track real-time meeting spend, score the value of the discussion, and keep history in this browser without signing in.'
+                  : 'Track real-time meeting spend, score the value of the discussion, and build a lightweight history dashboard with Supabase-authenticated backend storage and analysis.'}
               </p>
               <p className="mt-3 text-sm text-slate-400">
-                {serverStatus === 'online'
-                  ? 'Your Supabase session is active and the backend is available.'
-                  : serverStatus === 'offline'
-                    ? 'The backend is offline right now, so protected actions will fail until it comes back.'
-                    : 'Checking backend connectivity before syncing meeting history.'}
+                {isGuestMode
+                  ? 'Guest mode is active. Meeting history is stored in your browser and transcript analysis runs without login.'
+                  : serverStatus === 'online'
+                    ? 'Your Supabase session is active and the backend is available.'
+                    : serverStatus === 'offline'
+                      ? 'The backend is offline right now, so protected actions will fail until it comes back.'
+                      : 'Checking backend connectivity before syncing meeting history.'}
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              <button
-                type="button"
-                onClick={() => void handleLogout()}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-medium text-slate-100 transition hover:bg-white/10"
-              >
-                Log out
-              </button>
+              {!isGuestMode ? (
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm font-medium text-slate-100 transition hover:bg-white/10"
+                >
+                  Log out
+                </button>
+              ) : null}
               <div className="rounded-2xl border border-white/8 bg-white/5 p-4">
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-400">
                   Current burn plan
