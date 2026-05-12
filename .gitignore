@@ -14,6 +14,11 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.vercel
+mini-optimizer/.pydeps/
+mini-optimizer/deps/
+mini-optimizer/.pytest_cache/
+mini-optimizer/**/__pycache__/
 
 # Editor directories and files
 .vscode/*
